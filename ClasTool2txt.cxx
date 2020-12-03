@@ -1,3 +1,5 @@
+#include <iomanip>
+
 #include "Riostream.h"
 #include "TApplication.h"
 #include "TROOT.h"
@@ -10,6 +12,7 @@
 #include "TString.h"
 #include "TMath.h"
 #include "massConst.h"
+
 using namespace std;
 
 #define MAX_ELECTRONS 1
@@ -48,9 +51,9 @@ void PrintAnalysisTime(float tStart, float tStop);
 void PrintUsage(char *processName);
 int GetPID(string partName, int kind);
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     gROOT->SetBatch(true);
+    
     extern char *optarg;
     int c;
     extern int optind;
@@ -65,9 +68,9 @@ int main(int argc, char **argv)
 
     TString catPid;
 
-    bool bBatchMode = false;    // quiet mode
-    bool simul_key = false;  // simulation flag (true = simulation, false = data)
-    int tgt_key = 1;  // intitialize target flag 1 = Carbon (default), 2 = Iron, 3 = Lead
+    bool bBatchMode = false; // quiet mode
+    bool simul_key = false; // simulation flag (true = simulation, false = data)
+    int tgt_key = 1; // intitialize target flag 1 = Carbon (default), 2 = Iron, 3 = Lead
     string target; // solid target name
 
     char *inFile;
@@ -77,7 +80,7 @@ int main(int argc, char **argv)
     vector<int> elecIndex;
     vector<int> gamIndex;
 
-    TVector3 *myVertex;
+    TVector3 *myVertex = new TVector3(0., 0., 0.); // constructor is necessary
 
     float timeStart = clock(); // start time
 
@@ -86,7 +89,8 @@ int main(int argc, char **argv)
 
     TIdentificator *t = new TIdentificator(input);
 
-    for (i = 0; i < argc; ++i) cerr << argv[i] << " "; cerr << endl;
+    for (i = 0; i < argc; i++) cerr << argv[i] << " ";
+    cerr << endl;
     while ((c = getopt(argc,argv, "o:M:D:t:Sih")) != -1 ) {
         switch (c) {
             case 'o': outFile = optarg; break;
@@ -99,7 +103,6 @@ int main(int argc, char **argv)
                 PrintUsage(argv[0]);
                 exit(0);
                 break;
-
             default:
                 cerr << "Unrecognized argument: " << optarg << endl;
                 PrintUsage(argv[0]);
@@ -109,18 +112,19 @@ int main(int argc, char **argv)
     }
 
     // check target selection
-    switch(tgt_key){
-        case 1: target = "C"; break;
-        case 2: target = "Fe"; break;
-        case 3: target = "Pb"; break;
-        default: cout<<"Unknown target "<<target<<endl; exit(0); break;
+    switch (tgt_key) {
+    case 1: target = "C"; break;
+    case 2: target = "Fe"; break;
+    case 3: target = "Pb"; break;
+    default: cout << "Unknown target " << target << endl; exit(0); break;
     }
-    cout<<"Analyzing " << target << " target data"<<endl;
+    
+    cout << "Analyzing " << target << " target data" << endl;
 
-    if(simul_key) simTypes = 2;
+    if (simul_key) simTypes = 2;
 
     for (i = optind; i < argc; ++i) {
-        inFile = argv[i]; // process all arguments on command line.
+        inFile = argv[i]; // process all arguments on command line
         if (*inFile != '-') { // we have a file to process
             cout << "Analyzing file " << inFile << endl; // let user know which file is being processed
             input->Add(inFile); // read file into ClasTool object
@@ -130,61 +134,73 @@ int main(int argc, char **argv)
 
     Long_t nEntries = (Long_t) input->GetEntries(); // get total number of events
 
-    cout<<"Analyzing "<<nEntries<<" from "<<nfiles<< " files."<<endl; // print out stats
+    cout << "Analyzing " << nEntries << " from " << nfiles << " files." << endl; // print out stats
 
-    input->Next();
+    input->Next(); // jump to first readable event
 
     if(MaxEvents == 0) MaxEvents = nEntries; // if user does not set max. number of events, set to nEntries
 
-    for(k=0; k < MaxEvents; k++) {
-    	if (!bBatchMode && ((k % dEvents) == 0)) cerr << k << "\r"; // print the event number
-      for(kind=0; kind<simTypes; kind++){
+    for (k = 0; k < MaxEvents; k++) {
+      if (!bBatchMode && ((k % dEvents) == 0)) cerr << k << "\r"; // print the event number
+      
+      for (kind = 0; kind < simTypes; kind++) {
+	
         elecIndex.clear(); // clear out the electron list
         gamIndex.clear(); // clear out the photon list
         topology = false; // init. the event topology cut
 
-        if(kind == 0) nRows = input->GetNRows("EVNT");
-        if(kind == 1) nRows = input->GetNRows("GSIM");
-        cout<<"Rows "<<kind<<"  "<<nRows<<endl;
-        if(nRows >= minRows){ // check that the minimum number of particles in event
+        if (kind == 0) nRows = input->GetNRows("EVNT");
+	else if (kind == 1) nRows = input->GetNRows("GSIM");
+	
+        cout << "Rows " << kind << "  " << nRows << endl;
+	
+        if (nRows >= minRows) { // check that the minimum number of particles in event
+	  
           for (j = 0; j < nRows; j++) { // count particles in topology
-            catPid = t -> GetCategorizationParticle(j,kind);
-            if(catPid.EqualTo("electron")) elecIndex.push_back(j);
-            if(catPid.EqualTo("gamma")) gamIndex.push_back(j);
+            catPid = t->GetCategorizationParticle(j, kind);
+            if (catPid.EqualTo("electron")) elecIndex.push_back(j);
+	    else if (catPid.EqualTo("gamma")) gamIndex.push_back(j);
           } // for loop for searching for particle in topology
+	  
           // check event topology
-          topology = (elecIndex.size()>=MAX_ELECTRONS && gamIndex.size()>=MAX_PHOTONS);
-          if(topology && t->Q2(kind) > CUT_Q2 && t->W(kind) > CUT_W) {
-            if(kind==1){
-              myVertex->SetXYZ(t->X(0, kind), t->Y(0, kind), t->Z(0, kind));
-            }else{
-              myVertex = t->GetCorrectedVert();
-            }
-            cout << t->NEvent() << "\t" << kind << endl;
+          topology = (elecIndex.size() >= MAX_ELECTRONS && gamIndex.size() >= MAX_PHOTONS);
+	  
+          if (topology && t->Q2(kind) > CUT_Q2 && t->W(kind) > CUT_W) {
+	  
+	    // assign vertex variables
+	    if (kind == 1) myVertex->SetXYZ(t->X(0, kind), t->Y(0, kind), t->Z(0, kind));
+	    else myVertex = t->GetCorrectedVert();
+	    
+	    cout << t->NEvent() << "\t" << kind << endl;
+	    
             for (j = 0; j < nRows; j++) {
-              cout << t->Id(j,kind) <<"\t";
-              cout << t->Betta(j,kind) << "\t";
-              cout << t->Px(j, kind) << "\t";
-              cout << t->Py(j, kind) << "\t";
-              cout << t->Pz(j, kind) << "\t";
-              cout << myVertex->X() << "\t";
-              cout << myVertex->Y() << "\t";
-              cout << myVertex->Z() << endl;
+              cout << setw(10) << (Int_t) t->Id(j, kind)
+		   << fixed << setprecision(5) 
+		   << setw(10) << t->Betta(j, kind)
+		   << setprecision(3)
+		   << setw(10) << t->Px(j, kind)
+		   << setw(10) << t->Py(j, kind)
+		   << setw(10) << t->Pz(j, kind)
+		   << setw(10) << myVertex->X()
+		   << setw(10) << myVertex->Y()
+		   << setw(10) << myVertex->Z() << endl;
             } // for loop for printing
           } // if to check topology and cuts
+	  
         } // if to check nRows > minRows
+	
       } // for loop for kind counter
-      cout<<"A"<<endl;
+      
       input->Next();
-      cout<<"B"<<endl;
-    }
+    } // for loop for event counter
     float timeStop = clock();
     PrintAnalysisTime(timeStart,timeStop);
     return 0;
 }
 
-void PrintUsage(char *processName)
-{
+/*** Functions ***/
+
+void PrintUsage(char *processName) {
     cerr << processName << " <options> <filename>\n";
     cerr << "\toptions are:\n";
     cerr << "\t-o<filename>\tROOT output file (def. = f1.root).\n";
@@ -196,7 +212,6 @@ void PrintUsage(char *processName)
     cerr << "\t-h\t\tprint the above" << endl;
 }
 
-
 void PrintAnalysisTime(float tStart, float tStop){
     //time to complete function
     float minutes = 0;
@@ -207,11 +222,10 @@ void PrintAnalysisTime(float tStart, float tStop){
     minutes = minutes-seconds;
     seconds = seconds*60;
 
-    if (minutes==0){
-        cout<<endl<<"Completed in "<<seconds<<" seconds."<<endl<<endl;
-    }
-    else{
-        cout<<endl<<"Completed in "<<minutes<<" minutes and "<<seconds<<" seconds."<<endl<<endl;
+    if (minutes == 0) {
+      cout << endl << "Completed in " << seconds << " seconds." << endl << endl;
+    } else {
+      cout << endl << "Completed in " << minutes << " minutes and " << seconds << " seconds." << endl << endl;
     }
 }
 
